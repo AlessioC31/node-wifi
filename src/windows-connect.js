@@ -19,8 +19,34 @@ function execCommand(cmd, params) {
   });
 }
 
+function retry(config, ap, maxRetries = 5, promise, promiseObject) {
+  maxRetries--;
+
+  promiseObject = promiseObject || {
+    resolve: null,
+    reject: null
+  }
+
+  promise = promise || new Promise((res, rej) => {
+    promiseObject.resolve = res;
+    promiseObject.reject = rej;
+  });
+
+  connectToWifi(config, ap)
+    .then(() => promiseObject.resolve())
+    .catch(() => {
+      if (maxRetries > 0) {
+        retry(config, ap, maxRetries, promise, promiseObject);
+      } else {
+        promiseObject.reject('Max attempts');
+      }
+    });
+  
+  return promise;
+}
+
 function connectToWifi(config, ap, callback) {
-  scan(config)()
+  return scan(config)()
     .then(function(networks) {
       var selectedAp = networks.find(function(network) {
         return network.ssid === ap.ssid;
@@ -67,16 +93,6 @@ function connectToWifi(config, ap, callback) {
     .then(function() {
       callback && callback();
     })
-    .catch(function(err) {
-      execFile(
-        'netsh',
-        ['wlan', 'delete', 'profile "' + ap.ssid + '"'],
-        { env },
-        function() {
-          callback && callback(err);
-        }
-      );
-    });
 }
 
 function getHexSsid(plainTextSsid) {
@@ -136,15 +152,7 @@ module.exports = function(config) {
     if (callback) {
       connectToWifi(config, ap, callback);
     } else {
-      return new Promise(function(resolve, reject) {
-        connectToWifi(config, ap, function(err) {
-          if (err) {
-            reject(err);
-          } else {
-            resolve();
-          }
-        });
-      });
+      return retry(config, ap);
     }
   };
 };
